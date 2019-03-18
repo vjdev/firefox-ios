@@ -18,11 +18,12 @@ private let DefaultSuggestedSitesKey = "topSites.deletedSuggestedSites"
 struct ASPanelUX {
     static let rowSpacing: CGFloat = UIDevice.current.userInterfaceIdiom == .pad ? 30 : 20
     static let highlightCellHeight: CGFloat = UIDevice.current.userInterfaceIdiom == .pad ? 250 : 200
-    static let sectionInsetsForSizeClass = UXSizeClasses(compact: 0, regular: 101, other: 14)
+    static let sectionInsetsForSizeClass = UXSizeClasses(compact: 0, regular: 101, other: 20)
     static let numberOfItemsPerRowForSizeClassIpad = UXSizeClasses(compact: 3, regular: 4, other: 2)
     static let SectionInsetsForIpad: CGFloat = 101
-    static let SectionInsetsForIphone: CGFloat = 14
-    static let MinimumInsets: CGFloat = 14
+    static let SectionInsetsForIphone: CGFloat = 20
+    static let MinimumInsets: CGFloat = 20
+    static let TopSitesInsets: CGFloat = 6
     static let LibraryShortcutsHeight: CGFloat = 100
     static let LibraryShortcutsMaxWidth: CGFloat = 350
 }
@@ -183,8 +184,8 @@ extension ActivityStreamPanel {
 
         var footerHeight: CGSize {
             switch self {
-            case .pocket, .libraryShortcuts: return .zero
-            case .topSites: return CGSize(width: 50, height: 5)
+            case .pocket: return .zero
+            case .topSites, .libraryShortcuts: return CGSize(width: 50, height: 5)
             }
         }
 
@@ -207,16 +208,18 @@ extension ActivityStreamPanel {
                 currentTraits = UITraitCollection(horizontalSizeClass: .compact)
             }
             switch self {
-            case .pocket:
+            case .pocket, .libraryShortcuts:
+                let window = UIApplication.shared.keyWindow
+                let safeAreaInsets = window?.safeAreaInsets.left
                 var insets = ASPanelUX.sectionInsetsForSizeClass[currentTraits.horizontalSizeClass]
-                insets = insets + ASPanelUX.MinimumInsets
+                insets = insets + ASPanelUX.MinimumInsets + (safeAreaInsets ?? 0)
                 return insets
             case .topSites:
-                return ASPanelUX.sectionInsetsForSizeClass[currentTraits.horizontalSizeClass]
-            case .libraryShortcuts:
-                let shortcutsWidth = min(ASPanelUX.LibraryShortcutsMaxWidth, frameWidth)
-                return (frameWidth - shortcutsWidth)/2
+                var insets = ASPanelUX.sectionInsetsForSizeClass[currentTraits.horizontalSizeClass]
+                insets = insets + ASPanelUX.TopSitesInsets
+                return insets
             }
+
         }
 
         func numberOfItemsForRow(_ traits: UITraitCollection) -> CGFloat {
@@ -334,7 +337,8 @@ extension ActivityStreamPanel: UICollectionViewDelegateFlowLayout {
         case .libraryShortcuts:
             let numberofshortcuts: CGFloat = 4
             let titleSpacing: CGFloat = 10
-            return CGSize(width: min(ASPanelUX.LibraryShortcutsMaxWidth, cellSize.width), height: (cellSize.width / numberofshortcuts) + titleSpacing)
+            let width = min(ASPanelUX.LibraryShortcutsMaxWidth, cellSize.width)
+            return CGSize(width: width, height: (width / numberofshortcuts) + titleSpacing)
         }
     }
 
@@ -353,8 +357,10 @@ extension ActivityStreamPanel: UICollectionViewDelegateFlowLayout {
         switch Section(section) {
         case .pocket:
             return .zero
-        case .topSites, .libraryShortcuts:
+        case .topSites:
             return Section(section).footerHeight
+        case .libraryShortcuts:
+            return UIDevice.current.userInterfaceIdiom == .pad ? CGSize.zero : Section(section).footerHeight
         }
     }
 
@@ -793,7 +799,7 @@ extension ActivityStreamPanel: UIPopoverPresentationControllerDelegate {
 private struct ASHeaderViewUX {
     static var SeparatorColor: UIColor { return UIColor.theme.homePanel.separator }
     static let TextFont = DynamicFontHelper.defaultHelper.MediumSizeBoldFontAS
-    static let SeparatorHeight = 1
+    static let SeparatorHeight = 0.5
     static let Insets: CGFloat = UIDevice.current.userInterfaceIdiom == .pad ? ASPanelUX.SectionInsetsForIpad + ASPanelUX.MinimumInsets : ASPanelUX.MinimumInsets
     static let TitleTopInset: CGFloat = 5
 }
@@ -801,6 +807,7 @@ private struct ASHeaderViewUX {
 class ASFooterView: UICollectionReusableView {
 
     private var separatorLineView: UIView?
+    var leftConstraint: Constraint?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -810,16 +817,27 @@ class ASFooterView: UICollectionReusableView {
         addSubview(separatorLine)
         separatorLine.snp.makeConstraints { make in
             make.height.equalTo(ASHeaderViewUX.SeparatorHeight)
-            make.leading.equalTo(self.snp.leading)
-            make.trailing.equalTo(self.snp.trailing)
+            leftConstraint = make.leading.equalTo(self.safeArea.leading).inset(insets).constraint
+            make.trailing.equalTo(self.safeArea.trailing).inset(insets)
             make.top.equalTo(self.snp.top)
         }
         separatorLineView = separatorLine
         applyTheme()
     }
 
+    var insets: CGFloat {
+        get {
+            return UIScreen.main.bounds.size.width == self.frame.size.width && UIDevice.current.userInterfaceIdiom == .pad ? ASHeaderViewUX.Insets : ASPanelUX.MinimumInsets
+        }
+    }
+
     required init?(coder aDecoder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        leftConstraint?.update(offset: insets)
     }
 }
 
@@ -830,6 +848,8 @@ extension ASFooterView: Themeable {
 }
 
 class ASHeaderView: UICollectionReusableView {
+    static let verticalInsets: CGFloat = 4
+
     lazy fileprivate var titleLabel: UILabel = {
         let titleLabel = UILabel()
         titleLabel.accessibilityIdentifier = "pocketTitle"
@@ -892,16 +912,16 @@ class ASHeaderView: UICollectionReusableView {
         addSubview(moreButton)
         addSubview(iconView)
         moreButton.snp.makeConstraints { make in
-            make.top.equalTo(self).inset(ASHeaderViewUX.TitleTopInset)
-            make.bottom.equalTo(self)
+            make.top.equalTo(self.snp.top).offset(ASHeaderView.verticalInsets)
+            make.bottom.equalToSuperview().offset(-ASHeaderView.verticalInsets)
             self.rightConstraint = make.trailing.equalTo(self.safeArea.trailing).inset(-titleInsets).constraint
         }
         moreButton.setContentCompressionResistancePriority(.required, for: .horizontal)
         titleLabel.snp.makeConstraints { make in
             make.leading.equalTo(iconView.snp.trailing).offset(10)
             make.trailing.equalTo(moreButton.snp.leading).inset(-ASHeaderViewUX.TitleTopInset)
-            make.top.equalTo(self.snp.top).offset(4)
-            make.bottom.equalToSuperview().offset(-4)
+            make.top.equalTo(self.snp.top).offset(ASHeaderView.verticalInsets)
+            make.bottom.equalToSuperview().offset(-ASHeaderView.verticalInsets)
         }
         iconView.snp.makeConstraints { make in
             self.leftConstraint = make.leading.equalTo(self.safeArea.leading).inset(titleInsets).constraint
@@ -961,6 +981,12 @@ class LibraryShortcutView: UIView {
     }
 }
 
+extension LibraryShortcutView: Themeable {
+    func applyTheme() {
+        title.textColor = UIColor.theme.homePanel.topSiteDomain
+    }
+}
+
 class ASLibraryCell: UICollectionViewCell {
 
     var mainView = UIStackView()
@@ -984,7 +1010,7 @@ class ASLibraryCell: UICollectionViewCell {
         mainView.spacing = 25
         addSubview(mainView)
         mainView.snp.makeConstraints { make in
-            make.edges.equalTo(self).inset(UIEdgeInsets(top: 0, left: 5, bottom: 0, right: 5))
+            make.edges.equalTo(self).inset(UIEdgeInsets(top: 0, left: 12, bottom: 0, right: 12))
         }
 
         [bookmarks, history, readingList, downloads].forEach { item in
@@ -1002,6 +1028,16 @@ class ASLibraryCell: UICollectionViewCell {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func prepareForReuse() {
+        applyTheme()
+    }
+
+}
+
+extension ASLibraryCell: Themeable {
+    func applyTheme() {
+        libraryButtons.forEach { $0.applyTheme() }
+    }
 }
 
 open class PinnedSite: Site {
